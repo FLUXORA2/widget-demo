@@ -315,7 +315,7 @@
   // ----------------------------------------------------------------
   // CONFIGURACIÓN: pega aquí la URL de tu Google Apps Script Web App
   // ----------------------------------------------------------------
-  const CAP_ENDPOINT_URL = "PEGA_AQUI_TU_URL_DE_APPS_SCRIPT";
+  const CAP_ENDPOINT_URL = "https://script.google.com/macros/s/AKfycbysBsx114q7FOi_yGcAQpEfL27V6uBDd13HftodwQUjOYxnpNvyRUURyjvtB_g06sg/exec";
 
   // Modo demo: cuando es true, nada se envía de verdad — en vez de
   // hacer la petición al backend, muestra en pantalla el JSON que
@@ -323,7 +323,7 @@
   // le llegue nada a ninguna Sheet real. Pon esto en false (o
   // simplemente configura CAP_ENDPOINT_URL) cuando quieras que
   // envíe datos de verdad.
-  const CAP_DEMO_MODE = true;
+  const CAP_DEMO_MODE = false;
 
   function capEnviar(payload){
     if (CAP_DEMO_MODE){
