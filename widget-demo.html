@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Captadora — Widget de captación (demo)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* ============================================================
+     Página de fondo — simula la web de un cliente cualquiera,
+     solo para poder ver el widget en contexto.
+     ============================================================ */
+  body{
+    margin:0;
+    font-family:'Work Sans', sans-serif;
+    background:#F6F4F0;
+    color:#20211E;
+  }
+  .demo-page{
+    max-width:760px;
+    margin:0 auto;
+    padding:80px 24px 160px;
+  }
+  .demo-page h1{font-size:1.8rem; margin-bottom:8px;}
+  .demo-page p{color:#6B695F; line-height:1.6;}
+  .demo-note{
+    margin-top:40px;
+    padding:16px 20px;
+    background:#FFF;
+    border:1px solid #E4E1D8;
+    border-radius:8px;
+    font-size:0.88rem;
+    color:#6B695F;
+  }
+  .demo-note code{
+    background:#F0EEE6;
+    padding:2px 6px;
+    border-radius:4px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:0.82rem;
+  }
+
+  /* ============================================================
+     WIDGET CAPTADORA — todo lo de aquí abajo es lo que se pega
+     en la web del cliente. Los colores salen de variables CSS
+     para poder adaptarlos a la marca de cada empresa.
+     ============================================================ */
+  :root{
+    --cap-accent: #B06A3A;
+    --cap-accent-dark: #8C5430;
+    --cap-ink: #20211E;
+    --cap-ink-soft: #6B695F;
+    --cap-bg: #FFFFFF;
+    --cap-bg-soft: #F6F4F0;
+    --cap-line: #E4E1D8;
+    --cap-radius: 14px;
+    --cap-font: 'Work Sans', sans-serif;
+  }
+
+  #cap-launcher{
+    position:fixed;
+    bottom:24px;
+    right:24px;
+    width:60px;
+    height:60px;
+    border-radius:50%;
+    background:var(--cap-accent);
+    border:none;
+    box-shadow:0 8px 24px rgba(0,0,0,0.18);
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    z-index:9999;
+    transition:transform 0.15s ease;
+  }
+  #cap-launcher:hover{transform:scale(1.05);}
+  #cap-launcher svg{width:24px;height:24px;}
+
+  #cap-panel{
+    position:fixed;
+    bottom:98px;
+    right:24px;
+    width:min(360px, calc(100vw - 32px));
+    max-height:min(560px, calc(100vh - 140px));
+    background:var(--cap-bg);
+    border-radius:var(--cap-radius);
+    box-shadow:0 16px 48px rgba(0,0,0,0.2);
+    font-family:var(--cap-font);
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+    z-index:9999;
+    opacity:0;
+    transform:translateY(12px);
+    pointer-events:none;
+    transition:opacity 0.18s ease, transform 0.18s ease;
+  }
+  #cap-panel.open{
+    opacity:1;
+    transform:translateY(0);
+    pointer-events:auto;
+  }
+  @media (prefers-reduced-motion: reduce){
+    #cap-panel, #cap-launcher{transition:none;}
+  }
+
+  .cap-header{
+    background:var(--cap-ink);
+    color:#fff;
+    padding:18px 20px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+  }
+  .cap-header-title{font-size:0.94rem; font-weight:600;}
+  .cap-header-sub{font-size:0.76rem; opacity:0.65; margin-top:2px;}
+  .cap-close{
+    background:none;
+    border:none;
+    color:#fff;
+    opacity:0.7;
+    cursor:pointer;
+    font-size:1.2rem;
+    line-height:1;
+    padding:4px;
+  }
+  .cap-close:hover{opacity:1;}
+
+  .cap-progress{
+    height:3px;
+    background:var(--cap-line);
+  }
+  .cap-progress-bar{
+    height:100%;
+    background:var(--cap-accent);
+    width:0%;
+    transition:width 0.25s ease;
+  }
+
+  .cap-body{
+    padding:24px 20px;
+    overflow-y:auto;
+    flex:1;
+  }
+  .cap-question{
+    font-size:0.98rem;
+    font-weight:500;
+    margin-bottom:16px;
+    line-height:1.4;
+  }
+  .cap-options{
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+  }
+  .cap-option{
+    text-align:left;
+    padding:12px 14px;
+    border:1px solid var(--cap-line);
+    background:var(--cap-bg-soft);
+    border-radius:8px;
+    font-family:var(--cap-font);
+    font-size:0.88rem;
+    color:var(--cap-ink);
+    cursor:pointer;
+    transition:border-color 0.15s, background 0.15s;
+  }
+  .cap-option:hover{
+    border-color:var(--cap-accent);
+    background:#fff;
+  }
+  .cap-input{
+    width:100%;
+    padding:12px 14px;
+    border:1px solid var(--cap-line);
+    border-radius:8px;
+    font-family:var(--cap-font);
+    font-size:0.9rem;
+    margin-bottom:10px;
+  }
+  .cap-input:focus{outline:2px solid var(--cap-accent); outline-offset:1px;}
+  .cap-consent{
+    display:flex;
+    align-items:flex-start;
+    gap:8px;
+    margin:10px 0 4px;
+    cursor:pointer;
+  }
+  .cap-consent input{
+    margin-top:3px;
+    flex-shrink:0;
+  }
+  .cap-consent span{
+    font-size:0.78rem;
+    color:var(--cap-ink-soft);
+    line-height:1.4;
+  }
+  .cap-consent a{color:var(--cap-accent-dark);}
+  .cap-error{
+    font-size:0.8rem;
+    color:#C0392B;
+    margin:4px 0 6px;
+  }
+  .cap-submit{
+    width:100%;
+    padding:12px;
+    background:var(--cap-accent);
+    color:#fff;
+    border:none;
+    border-radius:8px;
+    font-family:var(--cap-font);
+    font-weight:500;
+    font-size:0.9rem;
+    cursor:pointer;
+    margin-top:6px;
+  }
+  .cap-submit:hover{background:var(--cap-accent-dark);}
+  .cap-back{
+    background:none;
+    border:none;
+    color:var(--cap-ink-soft);
+    font-size:0.78rem;
+    cursor:pointer;
+    margin-bottom:14px;
+    padding:0;
+  }
+  .cap-back:hover{color:var(--cap-ink);}
+
+  .cap-result{
+    text-align:center;
+    padding:12px 0 4px;
+  }
+  .cap-result-badge{
+    display:inline-block;
+    padding:6px 14px;
+    border-radius:20px;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:0.72rem;
+    text-transform:uppercase;
+    letter-spacing:0.06em;
+    margin-bottom:14px;
+  }
+  .cap-result-caliente{background:#FDEDE7; color:#C24C1F;}
+  .cap-result-templado{background:#FDF3E4; color:#B0791E;}
+  .cap-result-frio{background:#EAF1F5; color:#3C6E91;}
+  .cap-result h3{font-size:1.05rem; margin:0 0 8px;}
+  .cap-result p{font-size:0.86rem; color:var(--cap-ink-soft); margin:0 0 18px;}
+  .cap-ahorro{
+    background:var(--cap-bg-soft);
+    border:1px solid var(--cap-line);
+    border-radius:10px;
+    padding:16px;
+    margin-bottom:4px;
+  }
+  .cap-ahorro-label{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:0.66rem;
+    text-transform:uppercase;
+    letter-spacing:0.08em;
+    color:var(--cap-ink-soft);
+    margin-bottom:6px;
+  }
+  .cap-ahorro-value{
+    font-size:0.9rem;
+    font-weight:500;
+    color:var(--cap-accent-dark);
+    line-height:1.4;
+  }
+
+  .cap-footer{
+    padding:10px 20px;
+    text-align:center;
+    font-size:0.68rem;
+    color:var(--cap-ink-soft);
+    border-top:1px solid var(--cap-line);
+  }
+</style>
+</head>
+<body>
+
+<div class="demo-page">
+  <h1>AeroClima — página de ejemplo</h1>
+  <p>Esta página simula la web de un cliente cualquiera. El widget de Captadora aparece abajo a la derecha, tal y como se vería instalado.</p>
+  <div class="demo-note">
+    <strong>Modo demo activado</strong> (<code>CAP_DEMO_MODE = true</code>): al completar el chat no se envía nada real — se muestra en pantalla el JSON que se enviaría, para poder enseñar el widget sin tocar ninguna Sheet real. Para conectarlo de verdad: pon <code>CAP_DEMO_MODE = false</code> y sustituye <code>CAP_ENDPOINT_URL</code> por la URL de tu Google Apps Script.
+    <br><br>
+    El enlace "política de privacidad" del formulario ya apunta a <code>privacy-policy.html</code> — recuerda rellenar ahí los datos reales de la empresa antes de usarlo con un cliente.
+  </div>
+</div>
+
+<!-- ============ WIDGET ============ -->
+<button id="cap-launcher" aria-label="Abrir asistente de aerotermia" aria-expanded="false" aria-controls="cap-panel">
+  <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+  </svg>
+</button>
+
+<div id="cap-panel" role="dialog" aria-label="Asistente de aerotermia">
+  <div class="cap-header">
+    <div>
+      <div class="cap-header-title">¿Encaja la aerotermia en tu vivienda?</div>
+      <div class="cap-header-sub">2 minutos · sin compromiso</div>
+    </div>
+    <button class="cap-close" id="cap-close" aria-label="Cerrar">&times;</button>
+  </div>
+  <div class="cap-progress"><div class="cap-progress-bar" id="cap-progress-bar"></div></div>
+  <div class="cap-body" id="cap-body"><!-- se rellena por JS --></div>
+  <div class="cap-footer">Tus datos solo se usan para contactarte sobre tu presupuesto.</div>
+</div>
+
+<script>
+(function(){
+  // ----------------------------------------------------------------
+  // CONFIGURACIÓN: pega aquí la URL de tu Google Apps Script Web App
+  // ----------------------------------------------------------------
+  const CAP_ENDPOINT_URL = "PEGA_AQUI_TU_URL_DE_APPS_SCRIPT";
+
+  // Modo demo: cuando es true, nada se envía de verdad — en vez de
+  // hacer la petición al backend, muestra en pantalla el JSON que
+  // se enviaría. Útil para enseñar el widget a un cliente sin que
+  // le llegue nada a ninguna Sheet real. Pon esto en false (o
+  // simplemente configura CAP_ENDPOINT_URL) cuando quieras que
+  // envíe datos de verdad.
+  const CAP_DEMO_MODE = true;
+
+  function capEnviar(payload){
+    if (CAP_DEMO_MODE){
+      alert('[Modo demo — no se envía nada real]\n\n' + JSON.stringify(payload, null, 2));
+      return;
+    }
+    if (CAP_ENDPOINT_URL.indexOf('PEGA_AQUI') !== -1){
+      console.log('[Captadora] Falta configurar CAP_ENDPOINT_URL. Datos calculados:', payload);
+      return;
+    }
+    fetch(CAP_ENDPOINT_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify(payload)
+    }).catch(err => console.error('[Captadora] Error al enviar el lead:', err));
+  }
+
+  const state = { step: 0, answers: {} };
+
+  // Cada pregunta suma puntos a "score" según la respuesta elegida.
+  // score final decide frío / templado / caliente (ver classify()).
+  const steps = [
+    {
+      id: "vivienda",
+      type: "options",
+      question: "¿Qué tipo de vivienda tienes?",
+      options: [
+        { label: "Piso", score: 0 },
+        { label: "Chalet o unifamiliar", score: 1 },
+        { label: "Adosado", score: 1 }
+      ]
+    },
+    {
+      id: "sistema_actual",
+      type: "options",
+      question: "¿Qué usas ahora para calefacción?",
+      options: [
+        { label: "Gas o gasóleo", score: 2 },
+        { label: "Eléctrica", score: 1 },
+        { label: "Ya tengo aerotermia", score: 0, exit: "ya_tiene" },
+        { label: "Otro", score: 0 }
+      ]
+    },
+    {
+      id: "situacion",
+      type: "options",
+      question: "¿Es obra nueva o vivienda ya construida?",
+      options: [
+        { label: "Obra nueva", score: 1 },
+        { label: "Reforma en marcha", score: 1 },
+        { label: "Vivienda ya construida, sin reforma", score: 1 }
+      ]
+    },
+    {
+      id: "plazo",
+      type: "options",
+      question: "¿Para cuándo te gustaría instalarlo?",
+      options: [
+        { label: "Quiero presupuesto ya", score: 4 },
+        { label: "En los próximos 3 meses", score: 2 },
+        { label: "Solo me estoy informando", score: 0 }
+      ]
+    },
+    {
+      id: "zona",
+      type: "text",
+      question: "¿En qué código postal o localidad está la vivienda?",
+      placeholder: "Ej. 28045"
+    },
+    {
+      id: "contacto",
+      type: "contact",
+      question: "Por último, ¿cómo te avisamos con el presupuesto?"
+    }
+  ];
+
+  function classify(score){
+    if (score >= 6) return "caliente";
+    if (score >= 3) return "templado";
+    return "frio";
+  }
+
+  // Mensaje cualitativo según el sistema actual — nada de cifras inventadas
+  // sobre su caso concreto, solo hechos generales y verificables del sector.
+  const MENSAJE_AHORRO = {
+    "Gas o gasóleo": "Sustituir gas o gasóleo por aerotermia suele reducir bastante el consumo energético de la vivienda.",
+    "Eléctrica": "La aerotermia suele ser más eficiente que la calefacción eléctrica directa.",
+    "Otro": null,
+    "Ya tengo aerotermia": null
+  };
+
+  function mensajeAhorro(){
+    const sistema = state.answers.sistema_actual ? state.answers.sistema_actual.label : null;
+    return MENSAJE_AHORRO[sistema] || null;
+  }
+
+  const resultCopy = {
+    caliente: {
+      label: "Interés alto",
+      title: "¡Perfecto! Encaja muy bien.",
+      body: "Un técnico te llamará hoy mismo para concretar el presupuesto."
+    },
+    templado: {
+      label: "Interés medio",
+      title: "Buena opción para tu vivienda.",
+      body: "Te contactaremos en las próximas 24-48h con más detalle."
+    },
+    frio: {
+      label: "Información",
+      title: "Gracias por tu interés.",
+      body: "Te enviamos información general por email para que la valores con calma."
+    }
+  };
+
+  const panel = document.getElementById('cap-panel');
+  const launcher = document.getElementById('cap-launcher');
+  const closeBtn = document.getElementById('cap-close');
+  const body = document.getElementById('cap-body');
+  const progressBar = document.getElementById('cap-progress-bar');
+
+  function openPanel(){
+    panel.classList.add('open');
+    launcher.setAttribute('aria-expanded', 'true');
+    render();
+  }
+  function closePanel(){
+    panel.classList.remove('open');
+    launcher.setAttribute('aria-expanded', 'false');
+  }
+  launcher.addEventListener('click', () => {
+    panel.classList.contains('open') ? closePanel() : openPanel();
+  });
+  closeBtn.addEventListener('click', closePanel);
+
+  function updateProgress(){
+    const pct = Math.min(100, (state.step / steps.length) * 100);
+    progressBar.style.width = pct + '%';
+  }
+
+  function render(){
+    updateProgress();
+    if (state.step >= steps.length){
+      renderResult();
+      return;
+    }
+    const s = steps[state.step];
+    let html = '';
+    if (state.step > 0){
+      html += `<button class="cap-back" id="cap-back">← Atrás</button>`;
+    }
+    html += `<div class="cap-question">${s.question}</div>`;
+
+    if (s.type === 'options'){
+      html += `<div class="cap-options">`;
+      s.options.forEach((opt, i) => {
+        html += `<button class="cap-option" data-index="${i}">${opt.label}</button>`;
+      });
+      html += `</div>`;
+    } else if (s.type === 'text'){
+      html += `<input class="cap-input" id="cap-text-input" type="text" placeholder="${s.placeholder || ''}">`;
+      html += `<button class="cap-submit" id="cap-text-submit">Continuar</button>`;
+    } else if (s.type === 'contact'){
+      html += `<input class="cap-input" id="cap-name" type="text" placeholder="Nombre">`;
+      html += `<input class="cap-input" id="cap-phone" type="tel" placeholder="Teléfono">`;
+      html += `<input class="cap-input" id="cap-email" type="email" placeholder="Email">`;
+      html += `<label class="cap-consent">
+                 <input type="checkbox" id="cap-consent-check">
+                 <span>Acepto que mis datos se usen para contactarme sobre este presupuesto,
+                 según la <a href="privacy-policy.html" target="_blank" id="cap-privacy-link">política de privacidad</a>.</span>
+               </label>`;
+      html += `<div class="cap-error" id="cap-error" hidden></div>`;
+      html += `<button class="cap-submit" id="cap-contact-submit">Ver mi resultado</button>`;
+    }
+    body.innerHTML = html;
+    wireStep(s);
+  }
+
+  function wireStep(s){
+    const back = document.getElementById('cap-back');
+    if (back) back.addEventListener('click', () => { state.step--; render(); });
+
+    if (s.type === 'options'){
+      body.querySelectorAll('.cap-option').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const opt = s.options[parseInt(btn.dataset.index)];
+          state.answers[s.id] = { label: opt.label, score: opt.score };
+          if (opt.exit === 'ya_tiene'){
+            renderYaTieneExit();
+            return;
+          }
+          state.step++;
+          render();
+        });
+      });
+    } else if (s.type === 'text'){
+      const submit = () => {
+        const val = document.getElementById('cap-text-input').value.trim();
+        state.answers[s.id] = { label: val, score: 0 };
+        state.step++;
+        render();
+      };
+      document.getElementById('cap-text-submit').addEventListener('click', submit);
+    } else if (s.type === 'contact'){
+      document.getElementById('cap-contact-submit').addEventListener('click', () => {
+        const nombre = document.getElementById('cap-name').value.trim();
+        const telefono = document.getElementById('cap-phone').value.trim();
+        const email = document.getElementById('cap-email').value.trim();
+        const consiente = document.getElementById('cap-consent-check').checked;
+        const errorBox = document.getElementById('cap-error');
+
+        const telefonoValido = /^[+\d][\d\s]{6,}$/.test(telefono);
+        const emailValido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
+        let error = null;
+        if (!nombre) error = 'Escribe tu nombre.';
+        else if (!telefonoValido) error = 'Revisa el teléfono, no parece válido.';
+        else if (!emailValido) error = 'Revisa el email, no parece válido.';
+        else if (!consiente) error = 'Marca la casilla para poder contactarte.';
+
+        if (error){
+          errorBox.textContent = error;
+          errorBox.hidden = false;
+          return;
+        }
+
+        state.answers.contacto = {
+          nombre, telefono, email,
+          consentimiento: true,
+          consentimiento_fecha: new Date().toISOString()
+        };
+        state.step++;
+        submitLead();
+        render();
+      });
+    }
+  }
+
+  function renderYaTieneExit(){
+    updateProgress();
+    progressBar.style.width = '100%';
+    body.innerHTML = `
+      <div class="cap-result">
+        <span class="cap-result-badge cap-result-frio">Ya tienes aerotermia</span>
+        <h3>Genial, entonces ya estás ahorrando.</h3>
+        <p>Este formulario está pensado para quien todavía no tiene aerotermia. Si quieres, podemos avisarte cuando toque una revisión de mantenimiento.</p>
+        <div class="cap-options">
+          <button class="cap-option" id="cap-mant-si">Sí, avisadme del mantenimiento</button>
+          <button class="cap-option" id="cap-mant-no">No, gracias</button>
+        </div>
+        <div id="cap-mant-form"></div>
+      </div>
+    `;
+    document.getElementById('cap-mant-no').addEventListener('click', closePanel);
+    document.getElementById('cap-mant-si').addEventListener('click', () => {
+      document.getElementById('cap-mant-form').innerHTML = `
+        <input class="cap-input" id="cap-mant-phone" type="tel" placeholder="Teléfono o email" style="margin-top:14px;">
+        <label class="cap-consent">
+          <input type="checkbox" id="cap-mant-consent">
+          <span>Acepto que se use este dato solo para avisarme del mantenimiento.</span>
+        </label>
+        <div class="cap-error" id="cap-mant-error" hidden></div>
+        <button class="cap-submit" id="cap-mant-submit">Enviar</button>
+      `;
+      document.getElementById('cap-mant-submit').addEventListener('click', () => {
+        const contacto = document.getElementById('cap-mant-phone').value.trim();
+        const consiente = document.getElementById('cap-mant-consent').checked;
+        const errorBox = document.getElementById('cap-mant-error');
+        if (!contacto || !consiente){
+          errorBox.textContent = 'Escribe un contacto y marca la casilla.';
+          errorBox.hidden = false;
+          return;
+        }
+        capEnviar({
+          fecha: new Date().toISOString(),
+          clasificacion: 'mantenimiento',
+          contacto: contacto,
+          consentimiento: true,
+          consentimiento_fecha: new Date().toISOString()
+        });
+        document.getElementById('cap-mant-form').innerHTML = `<p style="font-size:0.86rem;color:var(--cap-ink-soft);margin-top:14px;">Hecho, te avisaremos.</p>`;
+      });
+    });
+  }
+
+  function renderResult(){
+    const score = Object.values(state.answers)
+      .filter(a => typeof a.score === 'number')
+      .reduce((sum, a) => sum + a.score, 0);
+    const level = classify(score);
+    const copy = resultCopy[level];
+    const ahorro = mensajeAhorro();
+
+    let ahorroHtml = '';
+    if (ahorro != null){
+      ahorroHtml = `
+        <div class="cap-ahorro">
+          <div class="cap-ahorro-value">${ahorro}</div>
+        </div>
+      `;
+    }
+
+    body.innerHTML = `
+      <div class="cap-result">
+        <span class="cap-result-badge cap-result-${level}">${copy.label}</span>
+        <h3>${copy.title}</h3>
+        <p>${copy.body}</p>
+        ${ahorroHtml}
+      </div>
+    `;
+  }
+
+  function submitLead(){
+    const score = Object.values(state.answers)
+      .filter(a => typeof a.score === 'number')
+      .reduce((sum, a) => sum + a.score, 0);
+    const level = classify(score);
+
+    const payload = {
+      fecha: new Date().toISOString(),
+      clasificacion: level,
+      puntuacion: score,
+      vivienda: state.answers.vivienda ? state.answers.vivienda.label : '',
+      sistema_actual: state.answers.sistema_actual ? state.answers.sistema_actual.label : '',
+      situacion: state.answers.situacion ? state.answers.situacion.label : '',
+      plazo: state.answers.plazo ? state.answers.plazo.label : '',
+      zona: state.answers.zona ? state.answers.zona.label : '',
+      nombre: state.answers.contacto ? state.answers.contacto.nombre : '',
+      telefono: state.answers.contacto ? state.answers.contacto.telefono : '',
+      email: state.answers.contacto ? state.answers.contacto.email : '',
+      consentimiento: state.answers.contacto ? state.answers.contacto.consentimiento : false,
+      consentimiento_fecha: state.answers.contacto ? state.answers.contacto.consentimiento_fecha : ''
+    };
+
+    capEnviar(payload);
+  }
+})();
+</script>
+
+</body>
+</html>
