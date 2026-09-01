@@ -5,12 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Captadora — Widget de captación (demo)</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://script.google.com/macros/s/AKfycbxoL6nWKZMTy5tbs1aJsbxDB-hZp_kuX52kLOGcWLSiCif0q9oawQDulzGokCYWe0A/exec" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
-  /* ============================================================
-     Página de fondo — simula la web de un cliente cualquiera,
-     solo para poder ver el widget en contexto.
-     ============================================================ */
   body{
     margin:0;
     font-family:'Work Sans', sans-serif;
@@ -41,11 +37,6 @@
     font-size:0.82rem;
   }
 
-  /* ============================================================
-     WIDGET CAPTADORA — todo lo de aquí abajo es lo que se pega
-     en la web del cliente. Los colores salen de variables CSS
-     para poder adaptarlos a la marca de cada empresa.
-     ============================================================ */
   :root{
     --cap-accent: #B06A3A;
     --cap-accent-dark: #8C5430;
@@ -254,14 +245,6 @@
     padding:16px;
     margin-bottom:4px;
   }
-  .cap-ahorro-label{
-    font-family:'IBM Plex Mono', monospace;
-    font-size:0.66rem;
-    text-transform:uppercase;
-    letter-spacing:0.08em;
-    color:var(--cap-ink-soft);
-    margin-bottom:6px;
-  }
   .cap-ahorro-value{
     font-size:0.9rem;
     font-weight:500;
@@ -305,23 +288,18 @@
     <button class="cap-close" id="cap-close" aria-label="Cerrar">&times;</button>
   </div>
   <div class="cap-progress"><div class="cap-progress-bar" id="cap-progress-bar"></div></div>
-  <div class="cap-body" id="cap-body"><!-- se rellena por JS --></div>
+  <div class="cap-body" id="cap-body"></div>
   <div class="cap-footer">Tus datos solo se usan para contactarte sobre tu presupuesto.</div>
 </div>
 
 <script>
 (function(){
-  // ----------------------------------------------------------------
-  // CONFIGURACIÓN: pega aquí la URL de tu Google Apps Script Web App
-  // ----------------------------------------------------------------
+  // ============================================================
+  // CONFIGURACIÓN: pega aquí la URL NUEVA de tu Apps Script
+  // ============================================================
   const CAP_ENDPOINT_URL = "https://script.google.com/macros/s/AKfycbxoL6nWKZMTy5tbs1aJsbxDB-hZp_kuX52kLOGcWLSiCif0q9oawQDulzGokCYWe0A/exec";
+  // ↑↑↑ CAMBIA ESTO por la nueva URL cuando crees la nueva implementación
 
-  // Modo demo: cuando es true, nada se envía de verdad — en vez de
-  // hacer la petición al backend, muestra en pantalla el JSON que
-  // se enviaría. Útil para enseñar el widget a un cliente sin que
-  // le llegue nada a ninguna Sheet real. Pon esto en false (o
-  // simplemente configura CAP_ENDPOINT_URL) cuando quieras que
-  // envíe datos de verdad.
   const CAP_DEMO_MODE = false;
 
   function capEnviar(payload){
@@ -329,8 +307,8 @@
       alert('[Modo demo — no se envía nada real]\n\n' + JSON.stringify(payload, null, 2));
       return;
     }
-    if (CAP_ENDPOINT_URL.indexOf('PEGA_AQUI') !== -1){
-      console.log('[Captadora] Falta configurar CAP_ENDPOINT_URL. Datos calculados:', payload);
+    if (CAP_ENDPOINT_URL.indexOf('PEGA_AQUI') !== -1 || CAP_ENDPOINT_URL.indexOf('AKfycbxoL6nWKZMTy5tbs1aJsbxDB') !== -1){
+      console.log('[Captadora] ⚠️ Falta configurar CAP_ENDPOINT_URL con la nueva URL de la implementación.');
       return;
     }
     fetch(CAP_ENDPOINT_URL, {
@@ -343,8 +321,6 @@
 
   const state = { step: 0, answers: {} };
 
-  // Cada pregunta suma puntos a "score" según la respuesta elegida.
-  // score final decide frío / templado / caliente (ver classify()).
   const steps = [
     {
       id: "vivienda",
@@ -406,8 +382,6 @@
     return "frio";
   }
 
-  // Mensaje cualitativo según el sistema actual — nada de cifras inventadas
-  // sobre su caso concreto, solo hechos generales y verificables del sector.
   const MENSAJE_AHORRO = {
     "Gas o gasóleo": "Sustituir gas o gasóleo por aerotermia suele reducir bastante el consumo energético de la vivienda.",
     "Eléctrica": "La aerotermia suele ser más eficiente que la calefacción eléctrica directa.",
@@ -492,7 +466,7 @@
       html += `<label class="cap-consent">
                  <input type="checkbox" id="cap-consent-check">
                  <span>Acepto que mis datos se usen para contactarme sobre este presupuesto,
-                 según la <a href="privacy-policy.html" target="_blank" id="cap-privacy-link">política de privacidad</a>.</span>
+                 según la <a href="https://fluxora2.github.io/captadora/privacy-policy.html" target="_blank" id="cap-privacy-link">política de privacidad</a>.</span>
                </label>`;
       html += `<div class="cap-error" id="cap-error" hidden></div>`;
       html += `<button class="cap-submit" id="cap-contact-submit">Ver mi resultado</button>`;
@@ -643,6 +617,7 @@
 
     const payload = {
       fecha: new Date().toISOString(),
+      dominio: window.location.hostname,
       clasificacion: level,
       puntuacion: score,
       vivienda: state.answers.vivienda ? state.answers.vivienda.label : '',
