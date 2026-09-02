@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Captadora — Widget de captación (demo)</title>
+<title>Captadora — Widget de captación</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -28,13 +28,6 @@
     border-radius:8px;
     font-size:0.88rem;
     color:#6B695F;
-  }
-  .demo-note code{
-    background:#F0EEE6;
-    padding:2px 6px;
-    border-radius:4px;
-    font-family:'IBM Plex Mono', monospace;
-    font-size:0.82rem;
   }
 
   :root{
@@ -92,9 +85,6 @@
     opacity:1;
     transform:translateY(0);
     pointer-events:auto;
-  }
-  @media (prefers-reduced-motion: reduce){
-    #cap-panel, #cap-launcher{transition:none;}
   }
 
   .cap-header{
@@ -188,7 +178,7 @@
     color:var(--cap-ink-soft);
     line-height:1.4;
   }
-  .cap-consent a{color:var(--cap-accent-dark);}
+  .cap-consent a{color:var(--cap-accent-dark); text-decoration:underline;}
   .cap-error{
     font-size:0.8rem;
     color:#C0392B;
@@ -265,15 +255,15 @@
 
 <div class="demo-page">
   <h1>AeroClima — Aerotermia eficiente</h1>
-  <p>Climatización eficiente para tu vivienda: calefacción, refrigeración y agua caliente en un único sistema, con ahorro real en la factura energética.</p>
+  <p>Climatización eficiente para tu vivienda: calefacción, refrigeración y agua caliente en un único sistema.</p>
   <div class="demo-note">
     <strong>¿Quieres saber si la aerotermia encaja en tu vivienda?</strong><br>
     Habla con nuestro asistente (abajo a la derecha) y descubre tus opciones en 2 minutos, sin compromiso.
   </div>
 </div>
 
-<!-- ============ WIDGET ============ -->
-<button id="cap-launcher" aria-label="Abrir asistente de aerotermia" aria-expanded="false" aria-controls="cap-panel">
+<!-- WIDGET -->
+<button id="cap-launcher" aria-label="Abrir asistente" aria-expanded="false" aria-controls="cap-panel">
   <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
   </svg>
@@ -295,11 +285,9 @@
 <script>
 (function(){
   // ============================================================
-  // CONFIGURACIÓN: pega aquí la URL NUEVA de tu Apps Script
+  // CONFIGURACIÓN — URL de tu Apps Script (NUEVA)
   // ============================================================
-const CAP_ENDPOINT_URL = "https://script.google.com/macros/s/AKfycbxoL6nWKZMTy5tbs1aJsbxDB-hZp_kuX52kLOGcWLSiCif0q9oawQDulzGokCYWe0A/exec";
-
-  // ↑↑↑ CAMBIA ESTO por la nueva URL cuando crees la nueva implementación
+  const CAP_ENDPOINT_URL = "https://script.google.com/macros/s/AKfycbwaEaG2HFn-uycU49HvJwY_H-VJbAWFyPKMrdL4hGB2CB20XBtDVbjtIhOoc-g1W1E/exec";
 
   const CAP_DEMO_MODE = false;
 
@@ -308,16 +296,12 @@ const CAP_ENDPOINT_URL = "https://script.google.com/macros/s/AKfycbxoL6nWKZMTy5t
       alert('[Modo demo — no se envía nada real]\n\n' + JSON.stringify(payload, null, 2));
       return;
     }
-    if (CAP_ENDPOINT_URL.indexOf('PEGA_AQUI') !== -1 || CAP_ENDPOINT_URL.indexOf('AKfycbxoL6nWKZMTy5tbs1aJsbxDB') !== -1){
-      console.log('[Captadora] ⚠️ Falta configurar CAP_ENDPOINT_URL con la nueva URL de la implementación.');
-      return;
-    }
     fetch(CAP_ENDPOINT_URL, {
       method: 'POST',
       mode: 'no-cors',
       headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify(payload)
-    }).catch(err => console.error('[Captadora] Error al enviar el lead:', err));
+    }).catch(err => console.error('[Captadora] Error al enviar:', err));
   }
 
   const state = { step: 0, answers: {} };
@@ -467,7 +451,7 @@ const CAP_ENDPOINT_URL = "https://script.google.com/macros/s/AKfycbxoL6nWKZMTy5t
       html += `<label class="cap-consent">
                  <input type="checkbox" id="cap-consent-check">
                  <span>Acepto que mis datos se usen para contactarme sobre este presupuesto,
-                 según la <a href="https://fluxora2.github.io/captadora/privacy-policy.html" target="_blank" id="cap-privacy-link">política de privacidad</a>.</span>
+                 según la <a href="https://fluxora2.github.io/captadora/privacy-policy.html" target="_blank">política de privacidad</a>.</span>
                </label>`;
       html += `<div class="cap-error" id="cap-error" hidden></div>`;
       html += `<button class="cap-submit" id="cap-contact-submit">Ver mi resultado</button>`;
@@ -514,8 +498,8 @@ const CAP_ENDPOINT_URL = "https://script.google.com/macros/s/AKfycbxoL6nWKZMTy5t
 
         let error = null;
         if (!nombre) error = 'Escribe tu nombre.';
-        else if (!telefonoValido) error = 'Revisa el teléfono, no parece válido.';
-        else if (!emailValido) error = 'Revisa el email, no parece válido.';
+        else if (!telefonoValido) error = 'Revisa el teléfono.';
+        else if (!emailValido) error = 'Revisa el email.';
         else if (!consiente) error = 'Marca la casilla para poder contactarte.';
 
         if (error){
@@ -593,11 +577,7 @@ const CAP_ENDPOINT_URL = "https://script.google.com/macros/s/AKfycbxoL6nWKZMTy5t
 
     let ahorroHtml = '';
     if (ahorro != null){
-      ahorroHtml = `
-        <div class="cap-ahorro">
-          <div class="cap-ahorro-value">${ahorro}</div>
-        </div>
-      `;
+      ahorroHtml = `<div class="cap-ahorro"><div class="cap-ahorro-value">${ahorro}</div></div>`;
     }
 
     body.innerHTML = `
