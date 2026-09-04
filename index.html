@@ -1,622 +1,428 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Captadora — Widget de captación</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;500;600&display=swap" rel="stylesheet">
-<style>
-  body{
-    margin:0;
-    font-family:'Work Sans', sans-serif;
-    background:#F6F4F0;
-    color:#20211E;
-  }
-  .demo-page{
-    max-width:760px;
-    margin:0 auto;
-    padding:80px 24px 160px;
-  }
-  .demo-page h1{font-size:1.8rem; margin-bottom:8px;}
-  .demo-page p{color:#6B695F; line-height:1.6;}
-  .demo-note{
-    margin-top:40px;
-    padding:16px 20px;
-    background:#FFF;
-    border:1px solid #E4E1D8;
-    border-radius:8px;
-    font-size:0.88rem;
-    color:#6B695F;
+/**
+ * CAPTADORA — backend gratuito con Google Apps Script
+ * ----------------------------------------------------
+ * Qué hace:
+ *  1. Recibe los datos del widget (POST) cada vez que alguien completa el chat.
+ *  2. Guarda una fila nueva en una Google Sheet.
+ *  3. Si la clasificación es "caliente", envía un email completo y bien
+ *     formateado al instalador, con guion de llamada sugerido.
+ *  4. Manda un resumen semanal del rendimiento (requiere activar el
+ *     disparador, ver más abajo).
+ *  5. A los leads "frío" (solo informativos) les manda automáticamente
+ *     una secuencia de 3 emails a lo largo de varias semanas (requiere
+ *     activar el disparador, ver más abajo).
+ *  6. Columna "Estado" con desplegable (Nuevo / Contactado / Presupuesto
+ *     enviado / Cerrado / Perdido) para llevar el embudo en la Sheet.
+ *
+ * NOTA SOBRE WHATSAPP: la versión anterior de este script usaba CallMeBot,
+ * una API no oficial de terceros. Se ha retirado por no ser fiable para
+ * algo que vendes como servicio de pago — un aviso que no llega es peor
+ * que no tener aviso. El canal de notificación ahora es solo email, que
+ * es 100% first-party (Gmail/Google Workspace) y no depende de servicios
+ * externos que puedan caerse o bloquearse sin aviso.
+ *
+ * ============================================================
+ * CÓMO INSTALARLO (sin coste, con tu cuenta de Google)
+ * ============================================================
+ *  1. Crea una Google Sheet nueva (puede ser un script independiente,
+ *     no hace falta que esté "pegado" dentro de la propia Sheet — así
+ *     puedes reutilizar el mismo código base entre clientes). En la
+ *     primera fila de la Sheet pon estas cabeceras, en este orden:
+ *     Fecha | Clasificación | Puntuación | Vivienda | Sistema actual | Situación | Plazo | Zona | Nombre | Teléfono | Email | Consentimiento | Fecha consentimiento | Nutrición 1 | Nutrición 2 | Nutrición 3 | Estado
+ *  2. Copia el ID de esa Sheet (está en la URL, entre "/d/" y "/edit").
+ *  3. En script.google.com (o desde Extensiones → Apps Script si prefieres
+ *     tenerlo dentro de la propia Sheet), pega este archivo entero.
+ *  4. Rellena el objeto CONFIG de aquí abajo con los datos reales del
+ *     cliente, incluido SHEET_ID (es el ÚNICO sitio del archivo que hay
+ *     que tocar por cliente — el resto del código no se toca).
+ *  5. Arriba a la derecha, pulsa "Implementar" → "Nueva implementación".
+ *     - Tipo: "Aplicación web"
+ *     - Ejecutar como: "Yo"
+ *     - Quién tiene acceso: "Cualquier usuario"
+ *  6. Copia la URL que te da (termina en /exec) y pégala en el widget,
+ *     en la constante CAP_ENDPOINT_URL.
+ *
+ * ============================================================
+ * CÓMO ACTIVAR EL RESUMEN SEMANAL Y LA NUTRICIÓN DE LEADS FRÍOS
+ * ============================================================
+ *  En el editor de Apps Script, icono del reloj ("Disparadores") →
+ *  "Añadir disparador":
+ *   - Función: enviarResumenSemanal · Basado en tiempo · Semanal
+ *   - Función: enviarNutricionFrios · Basado en tiempo · Diario
+ *  Ambos corren solos a partir de ahí, sin que tengas que hacer nada.
+ *
+ * Cada vez que actualices este código tendrás que crear una nueva
+ * implementación (o gestionar versiones) para que los cambios se apliquen.
+ */
+
+// ============================================================
+// CONFIG — lo único que hay que cambiar por cada cliente.
+// No toques nada por debajo de esta sección.
+// ============================================================
+const CONFIG = {
+  // === DATOS DEL CLIENTE (tú cambias esto por cada instalación) ===
+  NOMBRE_NEGOCIO: "Instalaciones Martínez",
+  EMAIL_INSTALADOR: "juan@instalacionesmartinez.com",
+  TELEFONO_INSTALADOR: "+34612345678", // no se usa todavía en ninguna función (WhatsApp se retiró por poco fiable) — se deja aquí listo para cuando haya presupuesto para una API de WhatsApp seria
+
+  // === TUYO (no lo toca el cliente) ===
+  EMAIL_REMITENTE: "leads@captadora.es",
+
+  // === SHEET (la creas tú desde la plantilla, una por cliente) ===
+  SHEET_ID: "1xYz...123...", // ID de la Sheet — está en la URL, entre /d/ y /edit
+  NOMBRE_HOJA: "Leads",      // pestaña dentro de esa Sheet
+
+  // === UMBRALES DE CLASIFICACIÓN ===
+  // El backend calcula frío/templado/caliente a partir de la puntuación
+  // que manda el widget — así no hace falta tocar el widget para ajustar
+  // la sensibilidad por cliente, solo estos dos números.
+  UMBRAL_CALIENTE: 6,
+  UMBRAL_TEMPLADO: 3,
+
+  // === DOMINIOS AUTORIZADOS ===
+  // El backend solo acepta peticiones cuyo campo "dominio" (que manda
+  // el widget automáticamente) esté en esta lista. Si alguien copia el
+  // widget y lo pega en otra web, el envío se descarta sin escribir en
+  // la Sheet ni mandar ningún email. Añade aquí el dominio real donde
+  // esté publicado el widget de este cliente (sin "https://", sin barra
+  // final) — puedes poner varios si el widget vive en más de un sitio.
+  DOMINIOS_PERMITIDOS: ["fluxora2.github.io"]
+};
+
+const ESTADOS = ["Nuevo", "Contactado", "Presupuesto enviado", "Cerrado", "Perdido"];
+
+function clasificarPorPuntuacion(puntuacion){
+  if (puntuacion >= CONFIG.UMBRAL_CALIENTE) return "caliente";
+  if (puntuacion >= CONFIG.UMBRAL_TEMPLADO) return "templado";
+  return "frio";
+}
+
+function dominioAutorizado(dominio){
+  // Si no se ha configurado ninguna lista, no bloqueamos nada (evita
+  // que un despliegue mal configurado deje de funcionar por accidente).
+  if (!CONFIG.DOMINIOS_PERMITIDOS || CONFIG.DOMINIOS_PERMITIDOS.length === 0) return true;
+  return CONFIG.DOMINIOS_PERMITIDOS.indexOf(dominio) !== -1;
+}
+
+// ============================================================
+// RECEPCIÓN DE LEADS
+// ============================================================
+function doPost(e) {
+  const datos = JSON.parse(e.postData.contents);
+
+  if (!dominioAutorizado(datos.dominio)) {
+    // No escribimos nada ni mandamos ningún email — se descarta en
+    // silencio. El widget no puede leer esta respuesta (usa modo
+    // no-cors), así que quien intente colar datos desde otro sitio
+    // ni siquiera sabrá que fue rechazado.
+    return ContentService
+      .createTextOutput(JSON.stringify({ ok: false, error: "dominio no autorizado" }))
+      .setMimeType(ContentService.MimeType.JSON);
   }
 
-  :root{
-    --cap-accent: #B06A3A;
-    --cap-accent-dark: #8C5430;
-    --cap-ink: #20211E;
-    --cap-ink-soft: #6B695F;
-    --cap-bg: #FFFFFF;
-    --cap-bg-soft: #F6F4F0;
-    --cap-line: #E4E1D8;
-    --cap-radius: 14px;
-    --cap-font: 'Work Sans', sans-serif;
+  const puntuacion = datos.puntuacion != null ? datos.puntuacion : 0;
+  const clasificacion = datos.clasificacion === "mantenimiento"
+    ? "mantenimiento"
+    : clasificarPorPuntuacion(puntuacion);
+
+  const hoja = obtenerOCrearHoja();
+
+  hoja.appendRow([
+    datos.fecha || new Date().toISOString(),
+    clasificacion,
+    puntuacion,
+    datos.vivienda || "",
+    datos.sistema_actual || "",
+    datos.situacion || "",
+    datos.plazo || "",
+    datos.zona || "",
+    datos.nombre || "",
+    datos.telefono || "",
+    datos.email || "",
+    datos.consentimiento ? "Sí" : "No",
+    datos.consentimiento_fecha || "",
+    "", "", "",
+    "Nuevo"
+  ]);
+
+  aplicarValidacionEstado(hoja);
+
+  if (clasificacion === "caliente") {
+    enviarAvisoCaliente(Object.assign({}, datos, { clasificacion, puntuacion }));
+  } else if (clasificacion === "templado") {
+    enviarAvisoTemplado(Object.assign({}, datos, { clasificacion, puntuacion }));
   }
 
-  #cap-launcher{
-    position:fixed;
-    bottom:24px;
-    right:24px;
-    width:60px;
-    height:60px;
-    border-radius:50%;
-    background:var(--cap-accent);
-    border:none;
-    box-shadow:0 8px 24px rgba(0,0,0,0.18);
-    cursor:pointer;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    z-index:9999;
-    transition:transform 0.15s ease;
-  }
-  #cap-launcher:hover{transform:scale(1.05);}
-  #cap-launcher svg{width:24px;height:24px;}
+  return ContentService
+    .createTextOutput(JSON.stringify({ ok: true, clasificacion: clasificacion }))
+    .setMimeType(ContentService.MimeType.JSON);
+}
 
-  #cap-panel{
-    position:fixed;
-    bottom:98px;
-    right:24px;
-    width:min(360px, calc(100vw - 32px));
-    max-height:min(560px, calc(100vh - 140px));
-    background:var(--cap-bg);
-    border-radius:var(--cap-radius);
-    box-shadow:0 16px 48px rgba(0,0,0,0.2);
-    font-family:var(--cap-font);
-    display:flex;
-    flex-direction:column;
-    overflow:hidden;
-    z-index:9999;
-    opacity:0;
-    transform:translateY(12px);
-    pointer-events:none;
-    transition:opacity 0.18s ease, transform 0.18s ease;
+function obtenerOCrearHoja() {
+  const libro = SpreadsheetApp.openById(CONFIG.SHEET_ID);
+  let hoja = libro.getSheetByName(CONFIG.NOMBRE_HOJA);
+  if (!hoja) {
+    hoja = libro.insertSheet(CONFIG.NOMBRE_HOJA);
+    hoja.appendRow([
+      "Fecha", "Clasificación", "Puntuación", "Vivienda",
+      "Sistema actual", "Situación", "Plazo", "Zona",
+      "Nombre", "Teléfono", "Email", "Consentimiento", "Fecha consentimiento",
+      "Nutrición 1", "Nutrición 2", "Nutrición 3", "Estado"
+    ]);
   }
-  #cap-panel.open{
-    opacity:1;
-    transform:translateY(0);
-    pointer-events:auto;
-  }
+  return hoja;
+}
 
-  .cap-header{
-    background:var(--cap-ink);
-    color:#fff;
-    padding:18px 20px;
-    display:flex;
-    align-items:center;
-    justify-content:space-between;
-  }
-  .cap-header-title{font-size:0.94rem; font-weight:600;}
-  .cap-header-sub{font-size:0.76rem; opacity:0.65; margin-top:2px;}
-  .cap-close{
-    background:none;
-    border:none;
-    color:#fff;
-    opacity:0.7;
-    cursor:pointer;
-    font-size:1.2rem;
-    line-height:1;
-    padding:4px;
-  }
-  .cap-close:hover{opacity:1;}
+// Desplegable de Estado en toda la columna, para elegir de una lista
+// en vez de escribir texto libre.
+function aplicarValidacionEstado(hoja) {
+  const cabecera = hoja.getRange(1, 1, 1, hoja.getLastColumn()).getValues()[0];
+  const idxEstado = cabecera.indexOf("Estado");
+  if (idxEstado === -1) return;
 
-  .cap-progress{
-    height:3px;
-    background:var(--cap-line);
-  }
-  .cap-progress-bar{
-    height:100%;
-    background:var(--cap-accent);
-    width:0%;
-    transition:width 0.25s ease;
-  }
+  const regla = SpreadsheetApp.newDataValidation()
+    .requireValueInList(ESTADOS, true)
+    .setAllowInvalid(false)
+    .build();
 
-  .cap-body{
-    padding:24px 20px;
-    overflow-y:auto;
-    flex:1;
-  }
-  .cap-question{
-    font-size:0.98rem;
-    font-weight:500;
-    margin-bottom:16px;
-    line-height:1.4;
-  }
-  .cap-options{
-    display:flex;
-    flex-direction:column;
-    gap:8px;
-  }
-  .cap-option{
-    text-align:left;
-    padding:12px 14px;
-    border:1px solid var(--cap-line);
-    background:var(--cap-bg-soft);
-    border-radius:8px;
-    font-family:var(--cap-font);
-    font-size:0.88rem;
-    color:var(--cap-ink);
-    cursor:pointer;
-    transition:border-color 0.15s, background 0.15s;
-  }
-  .cap-option:hover{
-    border-color:var(--cap-accent);
-    background:#fff;
-  }
-  .cap-input{
-    width:100%;
-    padding:12px 14px;
-    border:1px solid var(--cap-line);
-    border-radius:8px;
-    font-family:var(--cap-font);
-    font-size:0.9rem;
-    margin-bottom:10px;
-  }
-  .cap-input:focus{outline:2px solid var(--cap-accent); outline-offset:1px;}
-  .cap-consent{
-    display:flex;
-    align-items:flex-start;
-    gap:8px;
-    margin:10px 0 4px;
-    cursor:pointer;
-  }
-  .cap-consent input{
-    margin-top:3px;
-    flex-shrink:0;
-  }
-  .cap-consent span{
-    font-size:0.78rem;
-    color:var(--cap-ink-soft);
-    line-height:1.4;
-  }
-  .cap-consent a{color:var(--cap-accent-dark); text-decoration:underline;}
-  .cap-error{
-    font-size:0.8rem;
-    color:#C0392B;
-    margin:4px 0 6px;
-  }
-  .cap-submit{
-    width:100%;
-    padding:12px;
-    background:var(--cap-accent);
-    color:#fff;
-    border:none;
-    border-radius:8px;
-    font-family:var(--cap-font);
-    font-weight:500;
-    font-size:0.9rem;
-    cursor:pointer;
-    margin-top:6px;
-  }
-  .cap-submit:hover{background:var(--cap-accent-dark);}
-  .cap-back{
-    background:none;
-    border:none;
-    color:var(--cap-ink-soft);
-    font-size:0.78rem;
-    cursor:pointer;
-    margin-bottom:14px;
-    padding:0;
-  }
-  .cap-back:hover{color:var(--cap-ink);}
+  const numFilas = Math.max(hoja.getLastRow() - 1, 1);
+  hoja.getRange(2, idxEstado + 1, numFilas, 1).setDataValidation(regla);
+}
 
-  .cap-result{
-    text-align:center;
-    padding:12px 0 4px;
-  }
-  .cap-result-badge{
-    display:inline-block;
-    padding:6px 14px;
-    border-radius:20px;
-    font-family:'IBM Plex Mono', monospace;
-    font-size:0.72rem;
-    text-transform:uppercase;
-    letter-spacing:0.06em;
-    margin-bottom:14px;
-  }
-  .cap-result-caliente{background:#FDEDE7; color:#C24C1F;}
-  .cap-result-templado{background:#FDF3E4; color:#B0791E;}
-  .cap-result-frio{background:#EAF1F5; color:#3C6E91;}
-  .cap-result h3{font-size:1.05rem; margin:0 0 8px;}
-  .cap-result p{font-size:0.86rem; color:var(--cap-ink-soft); margin:0 0 18px;}
-  .cap-ahorro{
-    background:var(--cap-bg-soft);
-    border:1px solid var(--cap-line);
-    border-radius:10px;
-    padding:16px;
-    margin-bottom:4px;
-  }
-  .cap-ahorro-value{
-    font-size:0.9rem;
-    font-weight:500;
-    color:var(--cap-accent-dark);
-    line-height:1.4;
-  }
+// ============================================================
+// AVISO DE LEAD CALIENTE — email completo, con TODOS los datos
+// del lead y un guion de llamada sugerido. Asunto claro para que
+// se identifique de un vistazo en la bandeja de entrada.
+// ============================================================
+function enviarAvisoCaliente(datos) {
+  const asunto = "[LEAD CALIENTE] " + (datos.nombre || "Sin nombre") +
+    " - " + (datos.zona || "Zona sin especificar") +
+    " - " + (datos.sistema_actual || "Sistema actual sin especificar");
 
-  .cap-footer{
-    padding:10px 20px;
-    text-align:center;
-    font-size:0.68rem;
-    color:var(--cap-ink-soft);
-    border-top:1px solid var(--cap-line);
-  }
-</style>
-</head>
-<body>
+  const cuerpo =
+    "LLAMAR HOY — nuevo lead con intención alta de compra.\n\n" +
+    "=== DATOS DE CONTACTO ===\n" +
+    "Nombre: " + (datos.nombre || "-") + "\n" +
+    "Teléfono: " + (datos.telefono || "-") + "\n" +
+    "Email: " + (datos.email || "-") + "\n" +
+    "Zona: " + (datos.zona || "-") + "\n\n" +
+    "=== RESPUESTAS DEL CUESTIONARIO ===\n" +
+    "Tipo de vivienda: " + (datos.vivienda || "-") + "\n" +
+    "Sistema de calefacción actual: " + (datos.sistema_actual || "-") + "\n" +
+    "Situación (obra nueva / reforma / ya construida): " + (datos.situacion || "-") + "\n" +
+    "Plazo deseado: " + (datos.plazo || "-") + "\n" +
+    "Puntuación de cualificación: " + (datos.puntuacion != null ? datos.puntuacion : "-") + "\n\n" +
+    "=== CONSENTIMIENTO ===\n" +
+    "Aceptado: " + (datos.consentimiento ? "Sí" : "No") + "\n" +
+    "Fecha: " + (datos.consentimiento_fecha || "-") + "\n\n" +
+    "=== GUION SUGERIDO PARA LA LLAMADA ===\n" +
+    "\"Hola " + (datos.nombre || "") + ", te escribo de " + CONFIG.NOMBRE_NEGOCIO + " por la consulta " +
+    "de aerotermia. Vi que tienes " + (datos.sistema_actual || "tu sistema actual") +
+    " en una vivienda tipo " + (datos.vivienda || "-") + " en " + (datos.zona || "tu zona") +
+    " — quería confirmar contigo la superficie exacta y comentarte las opciones " +
+    "de subvención disponibles ahora mismo.\"";
 
-<div class="demo-page">
-  <h1>AeroClima — Aerotermia eficiente</h1>
-  <p>Climatización eficiente para tu vivienda: calefacción, refrigeración y agua caliente en un único sistema.</p>
-  <div class="demo-note">
-    <strong>¿Quieres saber si la aerotermia encaja en tu vivienda?</strong><br>
-    Habla con nuestro asistente (abajo a la derecha) y descubre tus opciones en 2 minutos, sin compromiso.
-  </div>
-</div>
-
-<!-- WIDGET -->
-<button id="cap-launcher" aria-label="Abrir asistente" aria-expanded="false" aria-controls="cap-panel">
-  <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
-  </svg>
-</button>
-
-<div id="cap-panel" role="dialog" aria-label="Asistente de aerotermia">
-  <div class="cap-header">
-    <div>
-      <div class="cap-header-title">¿Encaja la aerotermia en tu vivienda?</div>
-      <div class="cap-header-sub">2 minutos · sin compromiso</div>
-    </div>
-    <button class="cap-close" id="cap-close" aria-label="Cerrar">&times;</button>
-  </div>
-  <div class="cap-progress"><div class="cap-progress-bar" id="cap-progress-bar"></div></div>
-  <div class="cap-body" id="cap-body"></div>
-  <div class="cap-footer">Tus datos solo se usan para contactarte sobre tu presupuesto.</div>
-</div>
-
-<script>
-(function(){
-  // ============================================================
-  // CONFIGURACIÓN — URL de tu Apps Script (NUEVA)
-  // ============================================================
-  const CAP_ENDPOINT_URL = "https://script.google.com/macros/s/AKfycbwaEaG2HFn-uycU49HvJwY_H-VJbAWFyPKMrdL4hGB2CB20XBtDVbjtIhOoc-g1W1E/exec";
-
-  const CAP_DEMO_MODE = false;
-
-  function capEnviar(payload){
-    if (CAP_DEMO_MODE){
-      alert('[Modo demo — no se envía nada real]\n\n' + JSON.stringify(payload, null, 2));
-      return;
-    }
-    fetch(CAP_ENDPOINT_URL, {
-      method: 'POST',
-      mode: 'no-cors',
-      headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify(payload)
-    }).catch(err => console.error('[Captadora] Error al enviar:', err));
-  }
-
-  const state = { step: 0, answers: {} };
-
-  const steps = [
-    {
-      id: "vivienda",
-      type: "options",
-      question: "¿Qué tipo de vivienda tienes?",
-      options: [
-        { label: "Piso", score: 0 },
-        { label: "Chalet o unifamiliar", score: 1 },
-        { label: "Adosado", score: 1 }
-      ]
-    },
-    {
-      id: "sistema_actual",
-      type: "options",
-      question: "¿Qué usas ahora para calefacción?",
-      options: [
-        { label: "Gas o gasóleo", score: 2 },
-        { label: "Eléctrica", score: 1 },
-        { label: "Ya tengo aerotermia", score: 0, exit: "ya_tiene" },
-        { label: "Otro", score: 0 }
-      ]
-    },
-    {
-      id: "situacion",
-      type: "options",
-      question: "¿Es obra nueva o vivienda ya construida?",
-      options: [
-        { label: "Obra nueva", score: 1 },
-        { label: "Reforma en marcha", score: 1 },
-        { label: "Vivienda ya construida, sin reforma", score: 1 }
-      ]
-    },
-    {
-      id: "plazo",
-      type: "options",
-      question: "¿Para cuándo te gustaría instalarlo?",
-      options: [
-        { label: "Quiero presupuesto ya", score: 4 },
-        { label: "En los próximos 3 meses", score: 2 },
-        { label: "Solo me estoy informando", score: 0 }
-      ]
-    },
-    {
-      id: "zona",
-      type: "text",
-      question: "¿En qué código postal o localidad está la vivienda?",
-      placeholder: "Ej. 28045"
-    },
-    {
-      id: "contacto",
-      type: "contact",
-      question: "Por último, ¿cómo te avisamos con el presupuesto?"
-    }
-  ];
-
-  function classify(score){
-    if (score >= 6) return "caliente";
-    if (score >= 3) return "templado";
-    return "frio";
-  }
-
-  const MENSAJE_AHORRO = {
-    "Gas o gasóleo": "Sustituir gas o gasóleo por aerotermia suele reducir bastante el consumo energético de la vivienda.",
-    "Eléctrica": "La aerotermia suele ser más eficiente que la calefacción eléctrica directa.",
-    "Otro": null,
-    "Ya tengo aerotermia": null
-  };
-
-  function mensajeAhorro(){
-    const sistema = state.answers.sistema_actual ? state.answers.sistema_actual.label : null;
-    return MENSAJE_AHORRO[sistema] || null;
-  }
-
-  const resultCopy = {
-    caliente: {
-      label: "Interés alto",
-      title: "¡Perfecto! Encaja muy bien.",
-      body: "Un técnico te llamará hoy mismo para concretar el presupuesto."
-    },
-    templado: {
-      label: "Interés medio",
-      title: "Buena opción para tu vivienda.",
-      body: "Te contactaremos en las próximas 24-48h con más detalle."
-    },
-    frio: {
-      label: "Información",
-      title: "Gracias por tu interés.",
-      body: "Te enviamos información general por email para que la valores con calma."
-    }
-  };
-
-  const panel = document.getElementById('cap-panel');
-  const launcher = document.getElementById('cap-launcher');
-  const closeBtn = document.getElementById('cap-close');
-  const body = document.getElementById('cap-body');
-  const progressBar = document.getElementById('cap-progress-bar');
-
-  function openPanel(){
-    panel.classList.add('open');
-    launcher.setAttribute('aria-expanded', 'true');
-    render();
-  }
-  function closePanel(){
-    panel.classList.remove('open');
-    launcher.setAttribute('aria-expanded', 'false');
-  }
-  launcher.addEventListener('click', () => {
-    panel.classList.contains('open') ? closePanel() : openPanel();
+  MailApp.sendEmail({
+    to: CONFIG.EMAIL_INSTALADOR,
+    subject: asunto,
+    body: cuerpo,
+    name: "Captadora",
+    replyTo: CONFIG.EMAIL_REMITENTE
   });
-  closeBtn.addEventListener('click', closePanel);
+}
 
-  function updateProgress(){
-    const pct = Math.min(100, (state.step / steps.length) * 100);
-    progressBar.style.width = pct + '%';
+// ============================================================
+// AVISO DE LEAD TEMPLADO — tono informativo, sin urgencia.
+// No lleva guion de llamada agresivo, solo los datos y una
+// recomendación de contactar en 24-48h.
+// ============================================================
+function enviarAvisoTemplado(datos) {
+  const asunto = "[LEAD TEMPLADO] " + (datos.nombre || "Sin nombre") +
+    " - " + (datos.zona || "Zona sin especificar");
+
+  const cuerpo =
+    "Nuevo interesado en aerotermia — no es urgente, pero vale la pena contactar en las próximas 24-48h.\n\n" +
+    "=== DATOS DE CONTACTO ===\n" +
+    "Nombre: " + (datos.nombre || "-") + "\n" +
+    "Teléfono: " + (datos.telefono || "-") + "\n" +
+    "Email: " + (datos.email || "-") + "\n" +
+    "Zona: " + (datos.zona || "-") + "\n\n" +
+    "=== RESPUESTAS DEL CUESTIONARIO ===\n" +
+    "Tipo de vivienda: " + (datos.vivienda || "-") + "\n" +
+    "Sistema de calefacción actual: " + (datos.sistema_actual || "-") + "\n" +
+    "Situación: " + (datos.situacion || "-") + "\n" +
+    "Plazo indicado: " + (datos.plazo || "-") + "\n" +
+    "Puntuación de cualificación: " + (datos.puntuacion != null ? datos.puntuacion : "-") + "\n\n" +
+    "=== CONSENTIMIENTO ===\n" +
+    "Aceptado: " + (datos.consentimiento ? "Sí" : "No") + "\n" +
+    "Fecha: " + (datos.consentimiento_fecha || "-") + "\n\n" +
+    "Recomendación: contactar en 24-48h, sin prisa. No está tan decidido como un lead caliente, " +
+    "así que un mensaje informativo suele funcionar mejor que una llamada de venta directa.";
+
+  MailApp.sendEmail({
+    to: CONFIG.EMAIL_INSTALADOR,
+    subject: asunto,
+    body: cuerpo,
+    name: "Captadora",
+    replyTo: CONFIG.EMAIL_REMITENTE
+  });
+}
+
+// ============================================================
+// RESUMEN SEMANAL
+// ============================================================
+function enviarResumenSemanal() {
+  const hoja = obtenerOCrearHoja();
+  const filas = hoja.getDataRange().getValues();
+  const cabecera = filas[0];
+  const idxFecha = cabecera.indexOf("Fecha");
+  const idxClasificacion = cabecera.indexOf("Clasificación");
+  const idxEstado = cabecera.indexOf("Estado");
+
+  const haceUnaSemana = new Date();
+  haceUnaSemana.setDate(haceUnaSemana.getDate() - 7);
+
+  let total = 0, calientes = 0, templados = 0, frios = 0, convertidos = 0;
+
+  for (let i = 1; i < filas.length; i++) {
+    const fechaFila = new Date(filas[i][idxFecha]);
+    if (isNaN(fechaFila) || fechaFila < haceUnaSemana) continue;
+
+    total++;
+    const clasificacion = filas[i][idxClasificacion];
+    if (clasificacion === "caliente") calientes++;
+    else if (clasificacion === "templado") templados++;
+    else if (clasificacion === "frio") frios++;
+
+    if (idxEstado !== -1 && filas[i][idxEstado] === "Cerrado") convertidos++;
   }
 
-  function render(){
-    updateProgress();
-    if (state.step >= steps.length){
-      renderResult();
-      return;
-    }
-    const s = steps[state.step];
-    let html = '';
-    if (state.step > 0){
-      html += `<button class="cap-back" id="cap-back">← Atrás</button>`;
-    }
-    html += `<div class="cap-question">${s.question}</div>`;
+  const asunto = "[RESUMEN SEMANAL] " + total + " conversaciones — " + CONFIG.NOMBRE_NEGOCIO;
+  const cuerpo =
+    "Últimos 7 días:\n\n" +
+    "Conversaciones totales: " + total + "\n" +
+    "Calientes (listos para presupuesto): " + calientes + "\n" +
+    "Templados (interesados): " + templados + "\n" +
+    "Solo informativos: " + frios + "\n" +
+    "Convertidos en instalación (marcados como Cerrado): " + convertidos + "\n\n" +
+    "Nota: 'Convertidos' cuenta los leads de esta semana ya marcados como Cerrado en la Sheet " +
+    "en el momento de generar este resumen — si cierras una venta más tarde, se reflejará en un " +
+    "resumen futuro, no retroactivamente en este.\n\n" +
+    "Detalle completo en la Sheet de leads.";
 
-    if (s.type === 'options'){
-      html += `<div class="cap-options">`;
-      s.options.forEach((opt, i) => {
-        html += `<button class="cap-option" data-index="${i}">${opt.label}</button>`;
-      });
-      html += `</div>`;
-    } else if (s.type === 'text'){
-      html += `<input class="cap-input" id="cap-text-input" type="text" placeholder="${s.placeholder || ''}">`;
-      html += `<button class="cap-submit" id="cap-text-submit">Continuar</button>`;
-    } else if (s.type === 'contact'){
-      html += `<input class="cap-input" id="cap-name" type="text" placeholder="Nombre">`;
-      html += `<input class="cap-input" id="cap-phone" type="tel" placeholder="Teléfono">`;
-      html += `<input class="cap-input" id="cap-email" type="email" placeholder="Email">`;
-      html += `<label class="cap-consent">
-                 <input type="checkbox" id="cap-consent-check">
-                 <span>Acepto que mis datos se usen para contactarme sobre este presupuesto,
-                 según la <a href="https://fluxora2.github.io/captadora/privacy-policy.html" target="_blank">política de privacidad</a>.</span>
-               </label>`;
-      html += `<div class="cap-error" id="cap-error" hidden></div>`;
-      html += `<button class="cap-submit" id="cap-contact-submit">Ver mi resultado</button>`;
-    }
-    body.innerHTML = html;
-    wireStep(s);
+  MailApp.sendEmail({
+    to: CONFIG.EMAIL_INSTALADOR,
+    subject: asunto,
+    body: cuerpo,
+    name: "Captadora",
+    replyTo: CONFIG.EMAIL_REMITENTE
+  });
+}
+
+// ============================================================
+// NUTRICIÓN DE LEADS FRÍOS
+// ============================================================
+const NUTRICION_SECUENCIA = [
+  {
+    columna: "Nutrición 1",
+    diasDesde: 3,
+    asunto: "Lo que nadie te cuenta sobre la aerotermia",
+    cuerpo: (nombre) =>
+      "Hola " + (nombre || "") + ",\n\n" +
+      "Hace unos días preguntaste por aerotermia. Aquí van 3 cosas que suelen sorprender a quien se informa por primera vez:\n\n" +
+      "- No hace falta reformar toda la vivienda para instalarla.\n" +
+      "- Sirve tanto para calefacción como para agua caliente, con un único sistema.\n" +
+      "- Actualmente hay subvenciones activas que reducen bastante la inversión inicial.\n\n" +
+      "Si en algún momento quieres un presupuesto sin compromiso, aquí estamos.\n\n" +
+      "— " + CONFIG.NOMBRE_NEGOCIO
+  },
+  {
+    columna: "Nutrición 2",
+    diasDesde: 10,
+    asunto: "¿Cuánto se tarda en instalar una aerotermia?",
+    cuerpo: (nombre) =>
+      "Hola " + (nombre || "") + ",\n\n" +
+      "Una duda habitual: la instalación en una vivienda ya construida suele tardar entre 1 y 3 días, sin obra mayor.\n\n" +
+      "Si quieres, podemos pasarte una valoración orientativa sin compromiso para tu caso concreto.\n\n" +
+      "— " + CONFIG.NOMBRE_NEGOCIO
+  },
+  {
+    columna: "Nutrición 3",
+    diasDesde: 21,
+    asunto: "Última info: subvenciones para aerotermia",
+    cuerpo: (nombre) =>
+      "Hola " + (nombre || "") + ",\n\n" +
+      "Te escribimos por última vez de forma automática. Si en algún momento retomas la idea de la aerotermia, con gusto te ayudamos a ver qué subvenciones aplican a tu caso.\n\n" +
+      "Sin más envíos por nuestra parte — quedamos disponibles cuando tú quieras.\n\n" +
+      "— " + CONFIG.NOMBRE_NEGOCIO
   }
+];
 
-  function wireStep(s){
-    const back = document.getElementById('cap-back');
-    if (back) back.addEventListener('click', () => { state.step--; render(); });
+function enviarNutricionFrios() {
+  const hoja = obtenerOCrearHoja();
+  const filas = hoja.getDataRange().getValues();
+  const cabecera = filas[0];
 
-    if (s.type === 'options'){
-      body.querySelectorAll('.cap-option').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const opt = s.options[parseInt(btn.dataset.index)];
-          state.answers[s.id] = { label: opt.label, score: opt.score };
-          if (opt.exit === 'ya_tiene'){
-            renderYaTieneExit();
-            return;
-          }
-          state.step++;
-          render();
-        });
+  const idxFecha = cabecera.indexOf("Fecha");
+  const idxClasificacion = cabecera.indexOf("Clasificación");
+  const idxEmail = cabecera.indexOf("Email");
+  const idxConsentimiento = cabecera.indexOf("Consentimiento");
+  const idxNombre = cabecera.indexOf("Nombre");
+
+  const ahora = new Date();
+
+  for (let i = 1; i < filas.length; i++) {
+    const fila = filas[i];
+    if (fila[idxClasificacion] !== "frio") continue;
+    if (fila[idxConsentimiento] !== "Sí") continue;
+    if (!fila[idxEmail]) continue;
+
+    const fecha = new Date(fila[idxFecha]);
+    if (isNaN(fecha)) continue;
+    const diasPasados = Math.floor((ahora - fecha) / (1000 * 60 * 60 * 24));
+
+    NUTRICION_SECUENCIA.forEach(paso => {
+      const idxColumna = cabecera.indexOf(paso.columna);
+      if (idxColumna === -1) return;
+      const yaEnviado = fila[idxColumna];
+      if (yaEnviado) return;
+      if (diasPasados < paso.diasDesde) return;
+
+      MailApp.sendEmail({
+        to: fila[idxEmail],
+        subject: paso.asunto,
+        body: paso.cuerpo(fila[idxNombre]),
+        name: "Captadora",
+    replyTo: CONFIG.EMAIL_REMITENTE
       });
-    } else if (s.type === 'text'){
-      const submit = () => {
-        const val = document.getElementById('cap-text-input').value.trim();
-        state.answers[s.id] = { label: val, score: 0 };
-        state.step++;
-        render();
-      };
-      document.getElementById('cap-text-submit').addEventListener('click', submit);
-    } else if (s.type === 'contact'){
-      document.getElementById('cap-contact-submit').addEventListener('click', () => {
-        const nombre = document.getElementById('cap-name').value.trim();
-        const telefono = document.getElementById('cap-phone').value.trim();
-        const email = document.getElementById('cap-email').value.trim();
-        const consiente = document.getElementById('cap-consent-check').checked;
-        const errorBox = document.getElementById('cap-error');
-
-        const telefonoValido = /^[+\d][\d\s]{6,}$/.test(telefono);
-        const emailValido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-
-        let error = null;
-        if (!nombre) error = 'Escribe tu nombre.';
-        else if (!telefonoValido) error = 'Revisa el teléfono.';
-        else if (!emailValido) error = 'Revisa el email.';
-        else if (!consiente) error = 'Marca la casilla para poder contactarte.';
-
-        if (error){
-          errorBox.textContent = error;
-          errorBox.hidden = false;
-          return;
-        }
-
-        state.answers.contacto = {
-          nombre, telefono, email,
-          consentimiento: true,
-          consentimiento_fecha: new Date().toISOString()
-        };
-        state.step++;
-        submitLead();
-        render();
-      });
-    }
-  }
-
-  function renderYaTieneExit(){
-    updateProgress();
-    progressBar.style.width = '100%';
-    body.innerHTML = `
-      <div class="cap-result">
-        <span class="cap-result-badge cap-result-frio">Ya tienes aerotermia</span>
-        <h3>Genial, entonces ya estás ahorrando.</h3>
-        <p>Este formulario está pensado para quien todavía no tiene aerotermia. Si quieres, podemos avisarte cuando toque una revisión de mantenimiento.</p>
-        <div class="cap-options">
-          <button class="cap-option" id="cap-mant-si">Sí, avisadme del mantenimiento</button>
-          <button class="cap-option" id="cap-mant-no">No, gracias</button>
-        </div>
-        <div id="cap-mant-form"></div>
-      </div>
-    `;
-    document.getElementById('cap-mant-no').addEventListener('click', closePanel);
-    document.getElementById('cap-mant-si').addEventListener('click', () => {
-      document.getElementById('cap-mant-form').innerHTML = `
-        <input class="cap-input" id="cap-mant-phone" type="tel" placeholder="Teléfono o email" style="margin-top:14px;">
-        <label class="cap-consent">
-          <input type="checkbox" id="cap-mant-consent">
-          <span>Acepto que se use este dato solo para avisarme del mantenimiento.</span>
-        </label>
-        <div class="cap-error" id="cap-mant-error" hidden></div>
-        <button class="cap-submit" id="cap-mant-submit">Enviar</button>
-      `;
-      document.getElementById('cap-mant-submit').addEventListener('click', () => {
-        const contacto = document.getElementById('cap-mant-phone').value.trim();
-        const consiente = document.getElementById('cap-mant-consent').checked;
-        const errorBox = document.getElementById('cap-mant-error');
-        if (!contacto || !consiente){
-          errorBox.textContent = 'Escribe un contacto y marca la casilla.';
-          errorBox.hidden = false;
-          return;
-        }
-        capEnviar({
-          fecha: new Date().toISOString(),
-          clasificacion: 'mantenimiento',
-          contacto: contacto,
-          consentimiento: true,
-          consentimiento_fecha: new Date().toISOString()
-        });
-        document.getElementById('cap-mant-form').innerHTML = `<p style="font-size:0.86rem;color:var(--cap-ink-soft);margin-top:14px;">Hecho, te avisaremos.</p>`;
-      });
+      hoja.getRange(i + 1, idxColumna + 1).setValue(new Date().toISOString());
     });
   }
+}
 
-  function renderResult(){
-    const score = Object.values(state.answers)
-      .filter(a => typeof a.score === 'number')
-      .reduce((sum, a) => sum + a.score, 0);
-    const level = classify(score);
-    const copy = resultCopy[level];
-    const ahorro = mensajeAhorro();
+// ============================================================
+// PRUEBA MANUAL — ejecuta esta función directamente desde el
+// editor de Apps Script (botón "Ejecutar") para comprobar que
+// doPost, la Sheet y el email funcionan sin depender del widget.
+// ============================================================
+function pruebaManual() {
+  const datosDePrueba = {
+    fecha: new Date().toISOString(),
+    dominio: CONFIG.DOMINIOS_PERMITIDOS[0] || "prueba-local",
+    clasificacion: "caliente",
+    puntuacion: 7,
+    vivienda: "Chalet o unifamiliar",
+    sistema_actual: "Gas o gasóleo",
+    situacion: "Vivienda ya construida, sin reforma",
+    plazo: "Quiero presupuesto ya",
+    zona: "28045",
+    nombre: "Prueba Test",
+    telefono: "600111222",
+    email: "prueba@ejemplo.com",
+    consentimiento: true,
+    consentimiento_fecha: new Date().toISOString()
+  };
 
-    let ahorroHtml = '';
-    if (ahorro != null){
-      ahorroHtml = `<div class="cap-ahorro"><div class="cap-ahorro-value">${ahorro}</div></div>`;
-    }
-
-    body.innerHTML = `
-      <div class="cap-result">
-        <span class="cap-result-badge cap-result-${level}">${copy.label}</span>
-        <h3>${copy.title}</h3>
-        <p>${copy.body}</p>
-        ${ahorroHtml}
-      </div>
-    `;
-  }
-
-  function submitLead(){
-    const score = Object.values(state.answers)
-      .filter(a => typeof a.score === 'number')
-      .reduce((sum, a) => sum + a.score, 0);
-    const level = classify(score);
-
-    const payload = {
-      fecha: new Date().toISOString(),
-      dominio: window.location.hostname,
-      clasificacion: level,
-      puntuacion: score,
-      vivienda: state.answers.vivienda ? state.answers.vivienda.label : '',
-      sistema_actual: state.answers.sistema_actual ? state.answers.sistema_actual.label : '',
-      situacion: state.answers.situacion ? state.answers.situacion.label : '',
-      plazo: state.answers.plazo ? state.answers.plazo.label : '',
-      zona: state.answers.zona ? state.answers.zona.label : '',
-      nombre: state.answers.contacto ? state.answers.contacto.nombre : '',
-      telefono: state.answers.contacto ? state.answers.contacto.telefono : '',
-      email: state.answers.contacto ? state.answers.contacto.email : '',
-      consentimiento: state.answers.contacto ? state.answers.contacto.consentimiento : false,
-      consentimiento_fecha: state.answers.contacto ? state.answers.contacto.consentimiento_fecha : ''
-    };
-
-    capEnviar(payload);
-  }
-})();
-</script>
-
-</body>
-</html>
+  doPost({ postData: { contents: JSON.stringify(datosDePrueba) } });
+  Logger.log("Prueba completada — revisa la Sheet y el email de " + CONFIG.EMAIL_INSTALADOR);
+}
